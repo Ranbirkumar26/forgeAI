@@ -1,0 +1,83 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: uvicorn forgeai.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql+psycopg://forgeai:forgeai@postgres:5432/forgeai
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      RUNNER_MODE: celery
+      APPROVAL_MODE: required
+      ENABLE_CLOUD_PLUGINS: "false"
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - ./apps/api:/app/apps/api
+      - forge_artifacts:/app/.forgeai
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: celery -A forgeai.workers.celery_app.celery_app worker --loglevel=INFO
+    environment:
+      DATABASE_URL: postgresql+psycopg://forgeai:forgeai@postgres:5432/forgeai
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      RUNNER_MODE: celery
+      APPROVAL_MODE: required
+      ENABLE_CLOUD_PLUGINS: "false"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - forge_artifacts:/app/.forgeai
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: forgeai
+      POSTGRES_USER: forgeai
+      POSTGRES_PASSWORD: forgeai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  forge_artifacts:
+  postgres_data:
+  qdrant_data:
+

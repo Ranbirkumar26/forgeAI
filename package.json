@@ -1,0 +1,13 @@
+{
+  "name": "forgeai",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "pnpm --filter @forgeai/web dev",
+    "build": "pnpm --filter @forgeai/web build",
+    "lint": "pnpm --filter @forgeai/web lint",
+    "test": "pnpm --filter @forgeai/web test",
+    "test:e2e": "pnpm --filter @forgeai/web test:e2e"
+  }
+}
