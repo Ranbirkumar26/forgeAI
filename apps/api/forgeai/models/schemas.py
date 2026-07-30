@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RunCreate(BaseModel):
@@ -28,6 +28,12 @@ class ApprovalDecision(BaseModel):
     decision: Literal["approved", "rejected"]
     actor: str = "local-user"
     reason: str | None = None
+
+    @model_validator(mode="after")
+    def require_rejection_reason(self) -> "ApprovalDecision":
+        if self.decision == "rejected" and not self.reason:
+            raise ValueError("Rejection reason is required")
+        return self
 
 
 class RunEventRead(BaseModel):
@@ -86,6 +92,46 @@ class ArtifactRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class VerifiedPatchRead(BaseModel):
+    id: str
+    run_id: str
+    base_sha: str | None
+    diff: str
+    files_changed: list[Any]
+    lines_added: int
+    lines_removed: int
+    applies_cleanly: bool
+    applied_at: datetime | None
+    apply_output: str | None
+    checks: list[Any]
+    attempts: int
+    context_files_read: list[Any]
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    sandbox_image: str
+    provenance: dict[str, Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LLMCallRead(BaseModel):
+    id: str
+    run_id: str
+    step_id: str | None
+    sequence: int
+    model: str
+    messages_hash: str
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+    cost_usd: float
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class TaskRunRead(BaseModel):
     id: str
     task: str
@@ -100,5 +146,7 @@ class TaskRunRead(BaseModel):
     steps: list[AgentStepRead] = Field(default_factory=list)
     approvals: list[ApprovalRequestRead] = Field(default_factory=list)
     artifacts: list[ArtifactRead] = Field(default_factory=list)
+    verified_patches: list[VerifiedPatchRead] = Field(default_factory=list)
+    llm_calls: list[LLMCallRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

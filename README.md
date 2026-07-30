@@ -1,34 +1,227 @@
 # ForgeAI
 
-ForgeAI is a local-first autonomous AI software engineering control plane. It is designed to look and behave like the skeleton of a real developer co-pilot: it indexes a repository, plans work, prepares code changes, pauses at approval gates, runs safe checks, generates visual review artifacts, records memory, and exposes the whole run through a live dashboard.
+ForgeAI is a local-first software engineering control plane for verified, approval-gated code changes. It is built as a production-style monorepo with a FastAPI and LangGraph backend, a Next.js dashboard, repository indexing, deterministic retrieval, durable run history, human approval gates, and first-class patch evidence.
 
-This is not another chatbot. The core product idea is an approval-gated autonomous software engineer with:
+The MVP is centered on one artifact: `VerifiedPatch`.
 
-- FastAPI API for orchestration, approvals, repository indexing, search, metrics, and SSE events.
-- LangGraph execution graph for multi-agent task flow.
-- Plugin registry for adding agents and tools without rewriting the API layer.
-- Next.js dashboard for live graph state, timeline, approvals, artifacts, vector search, and usage counters.
-- Local-first RAG with deterministic embeddings, Qdrant when available, and in-memory fallback for tests/offline demos.
-- OpenCV visual diff generation for UI review artifacts.
-- Celery/Redis worker path for Docker mode, plus inline mode for simple local development.
-- Postgres/pgvector-ready Docker stack while keeping SQLite as the default zero-cloud path.
-- Explicit security documentation for known weaknesses and hardening priorities.
+A run is not considered valuable because an agent wrote text. A run is valuable when it produces an evidence-backed patch that a human can inspect, approve, apply, reject, replay, and audit.
 
-## Repository Status
+## Current Status
 
-ForgeAI is an MVP scaffold intended for demos, recruiter review, and future agent-driven extension. It already runs end-to-end locally, but it is not production-hardened yet.
+Implemented:
 
-Current behavior:
+- FastAPI API with task runs, approvals, repository indexing, search, health, metrics, and SSE events.
+- LangGraph orchestration with four built-in agents: Planner, Engineer, Reviewer, and Documenter.
+- Approval gate that halts before mutating patch application.
+- `VerifiedPatch` persistence with diff, base SHA, changed files, line counts, clean-apply result, checks, provenance, token metrics, and apply status.
+- Local patch verifier using `git apply --check` and internal diff secret scanning.
+- Approved patch application using `git apply`.
+- Repository indexing with sensitive-path exclusion, file-size limits, `.forgeignore`, lightweight symbol-aware chunking, deterministic embeddings, Qdrant when available, and in-memory fallback.
+- Prompt-injection signal detection for retrieved context.
+- Replay scaffolding through `LLMCall` records without requiring live model calls.
+- Next.js dashboard focused on run trace, approval evidence, unified diff, checks, artifacts, vector search, and token/tool usage.
+- Docker Compose for local full stack.
+- CI workflow for backend tests, frontend build, lint, and Docker smoke checks.
+- Security and vulnerability documentation for future agents.
 
-- A task run starts from the dashboard or API.
-- Planner and Repo RAG agents create an execution context.
-- Coder prepares a patch artifact and pauses for approval before any write-like action.
-- After approval, the graph continues through Testing, Vision, Security, Review, Documentation, Deployment, and Memory agents.
-- Deployment is intentionally skipped unless cloud plugins and credentials are explicitly enabled.
+Not implemented yet:
 
-Important limitation:
+- Locked-down container sandbox for file, shell, browser, git, and deploy actions.
+- Tree-sitter indexer.
+- ONNX or transformer embedding runtime.
+- Real provider LLM calls.
+- Playwright screenshot capture and computer-vision review as a default workflow.
+- GitHub PR creation, git push, Railway deploy, Vercel deploy, Supabase cloud setup, and browser-form automation.
+- API authentication, ownership, quotas, and production CORS controls.
 
-- The current Coder Agent prepares a demo patch artifact. It does not yet apply patches to arbitrary repositories. That is deliberate for the first approval-gated MVP.
+Those items are deferred, not rejected. See `AGENTS.md` and `docs/SECURITY_AND_VULNERABILITIES.md`.
+
+## Feature Tree
+
+```text
+ForgeAI
+|
++-- Control Plane
+|   |
+|   +-- TaskRun lifecycle
+|   |   +-- queued
+|   |   +-- running
+|   |   +-- awaiting_approval
+|   |   +-- completed
+|   |   +-- rejected
+|   |   +-- failed
+|   |
+|   +-- RunEvent stream
+|   |   +-- persisted sequence numbers
+|   |   +-- Server-Sent Events endpoint
+|   |   +-- dashboard polling fallback
+|   |
+|   +-- AgentStep history
+|   |   +-- status
+|   |   +-- summary
+|   |   +-- token counts
+|   |   +-- structured payload
+|   |
+|   +-- Artifact store
+|       +-- plan
+|       +-- patch
+|       +-- review
+|       +-- changelog
+|
++-- Agent Graph
+|   |
+|   +-- Planner
+|   |   +-- creates verified patch work order
+|   |   +-- records replay metadata
+|   |   +-- emits plan artifact
+|   |
+|   +-- Engineer
+|   |   +-- retrieves repository context
+|   |   +-- builds minimal patch
+|   |   +-- verifies clean apply
+|   |   +-- scans diff for likely secrets
+|   |   +-- requests approval before apply
+|   |   +-- applies approved patch
+|   |
+|   +-- Approval Gate
+|   |   +-- halts on pending approval
+|   |   +-- resumes after approval resolution
+|   |
+|   +-- Reviewer
+|   |   +-- audits tool calls
+|   |   +-- checks approval coverage
+|   |   +-- reports suspicious retrieved content
+|   |   +-- writes review artifact
+|   |
+|   +-- Documenter
+|       +-- writes changelog artifact
+|       +-- stores memory summary
+|
++-- VerifiedPatch
+|   |
+|   +-- Patch identity
+|   |   +-- id
+|   |   +-- run_id
+|   |   +-- base_sha
+|   |
+|   +-- Diff evidence
+|   |   +-- unified diff
+|   |   +-- files_changed
+|   |   +-- lines_added
+|   |   +-- lines_removed
+|   |
+|   +-- Verification evidence
+|   |   +-- applies_cleanly
+|   |   +-- git apply check
+|   |   +-- diff secret scan
+|   |   +-- attempts
+|   |   +-- provenance
+|   |
+|   +-- Apply evidence
+|   |   +-- applied_at
+|   |   +-- apply_output
+|   |
+|   +-- Cost and replay
+|       +-- tokens_in
+|       +-- tokens_out
+|       +-- cost_usd
+|       +-- context_files_read
+|
++-- Repository Intelligence
+|   |
+|   +-- Local indexing
+|   |   +-- `.forgeignore`
+|   |   +-- ignored dependency/build folders
+|   |   +-- sensitive-path exclusion
+|   |   +-- max file size cap
+|   |   +-- secret-content skip
+|   |
+|   +-- Chunking
+|   |   +-- markdown and config text chunks
+|   |   +-- lightweight Python symbols
+|   |   +-- lightweight TypeScript and JavaScript symbols
+|   |   +-- import extraction
+|   |   +-- line ranges
+|   |
+|   +-- Retrieval
+|       +-- keyword and symbol search
+|       +-- deterministic local embeddings
+|       +-- Qdrant optional path
+|       +-- in-memory vector fallback
+|
++-- Safety
+|   |
+|   +-- ApprovalPolicy
+|   |   +-- file writes
+|   |   +-- patch application
+|   |   +-- shell mutations
+|   |   +-- git push
+|   |   +-- GitHub PR
+|   |   +-- deploy
+|   |   +-- browser form action
+|   |
+|   +-- Redaction
+|   |   +-- common API keys
+|   |   +-- GitHub tokens
+|   |   +-- OpenAI-style keys
+|   |   +-- private key blocks
+|   |
+|   +-- Prompt-injection signals
+|       +-- ignore previous instructions
+|       +-- reveal system prompt
+|       +-- print `.env`
+|       +-- disable approval checks
+|       +-- exfiltration language
+|
++-- Dashboard
+|   |
+|   +-- Run composer
+|   +-- Repository index action
+|   +-- Approval screen
+|   |   +-- diff stats
+|   |   +-- checks
+|   |   +-- equal-weight reject and approve controls
+|   |   +-- required rejection reason
+|   |
+|   +-- Run trace
+|   |   +-- status
+|   |   +-- run id copy
+|   |   +-- base SHA copy
+|   |   +-- event stream
+|   |
+|   +-- VerifiedPatch view
+|   |   +-- clean apply status
+|   |   +-- applied status
+|   |   +-- attempts
+|   |   +-- cost
+|   |   +-- unified diff
+|   |
+|   +-- Artifacts
+|   +-- Vector search
+|
++-- Observability
+|   |
+|   +-- Prometheus metrics
+|   +-- OpenTelemetry FastAPI instrumentation
+|   +-- structured events
+|   +-- token and cost records
+|
++-- Optional Infrastructure
+    |
+    +-- Docker Compose
+    |   +-- API
+    |   +-- web
+    |   +-- worker
+    |   +-- Postgres
+    |   +-- Redis
+    |   +-- Qdrant
+    |
+    +-- Disabled-by-default cloud plugins
+        +-- GitHub
+        +-- Railway
+        +-- Vercel
+        +-- Supabase
+```
 
 ## Quick Start
 
@@ -62,33 +255,18 @@ Open:
 - Health check: `http://localhost:8000/healthz`
 - Prometheus metrics: `http://localhost:8000/metrics`
 
-If ports are busy, use alternates:
+Alternate ports:
 
 ```bash
 uvicorn forgeai.main:app --app-dir apps/api --host 127.0.0.1 --port 8002 --reload
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8002 pnpm --dir apps/web exec next dev --hostname 127.0.0.1 --port 3002
 ```
 
-## Docker Compose
-
-```bash
-docker compose up --build
-```
-
-Services:
-
-- `api`: FastAPI service on port `8000`
-- `worker`: Celery worker
-- `web`: Next.js dashboard on port `3000`
-- `postgres`: pgvector-ready Postgres
-- `redis`: Celery broker/result backend
-- `qdrant`: vector database
-
-Docker mode sets `RUNNER_MODE=celery`, so runs are executed by the worker instead of FastAPI background tasks.
-
 ## Demo Script
 
-Use the included sample repository:
+Use the included sample repository or any small local git repository with a `README.md`.
+
+Index the sample repo:
 
 ```bash
 curl -X POST http://localhost:8000/api/repos/index \
@@ -96,36 +274,35 @@ curl -X POST http://localhost:8000/api/repos/index \
   -d '{"path":"examples/sample-repo"}'
 ```
 
-Then open the dashboard and:
-
-1. Paste or keep the sample repo path.
-2. Click `Index Repo`.
-3. Click `Start Run`.
-4. Watch Planner, Repo RAG, and Coder run.
-5. Approve the prepared patch.
-6. Watch Testing, Vision, Security, Review, Docs, Deployment, and Memory complete.
-7. Inspect generated artifacts: execution plan, patch, test report, visual diff, review notes, changelog, and LinkedIn draft.
-
-## API Surface
-
-Core endpoints:
-
-- `POST /api/runs`: create a task run.
-- `GET /api/runs/{id}`: read run state, steps, approvals, events, and artifacts.
-- `GET /api/runs/{id}/events`: stream run events via Server-Sent Events.
-- `POST /api/runs/{id}/approvals/{approval_id}`: approve or reject a pending action.
-- `POST /api/repos/index`: chunk and index a local repository path.
-- `GET /api/search?q=...`: semantic search over indexed repository chunks.
-- `GET /healthz`: health check.
-- `GET /metrics`: Prometheus metrics.
-
-Example run:
+Create a run:
 
 ```bash
 curl -X POST http://localhost:8000/api/runs \
   -H "Content-Type: application/json" \
-  -d '{"task":"Prepare a safe README improvement","model_profile":"balanced"}'
+  -d '{"task":"Prepare a safe README improvement","repo_path":"examples/sample-repo","model_profile":"balanced"}'
 ```
+
+Dashboard flow:
+
+1. Paste the absolute path to `examples/sample-repo`.
+2. Click `Index`.
+3. Click `Start`.
+4. Watch Planner and Engineer create a `VerifiedPatch`.
+5. Inspect changed files, checks, provenance, and unified diff.
+6. Approve and apply, or reject with a reason.
+7. Watch Reviewer and Documenter complete.
+8. Inspect review and changelog artifacts.
+
+## API Surface
+
+- `POST /api/runs`: create a task run.
+- `GET /api/runs/{id}`: read run state, events, steps, approvals, artifacts, verified patches, and replay records.
+- `GET /api/runs/{id}/events`: stream run events through Server-Sent Events.
+- `POST /api/runs/{id}/approvals/{approval_id}`: approve or reject a pending action.
+- `POST /api/repos/index`: index a local repository path.
+- `GET /api/search?q=...`: search indexed repository chunks.
+- `GET /healthz`: health check.
+- `GET /metrics`: Prometheus metrics.
 
 Example approval:
 
@@ -135,10 +312,18 @@ curl -X POST http://localhost:8000/api/runs/RUN_ID/approvals/APPROVAL_ID \
   -d '{"decision":"approved","actor":"local-user"}'
 ```
 
+Example rejection:
+
+```bash
+curl -X POST http://localhost:8000/api/runs/RUN_ID/approvals/APPROVAL_ID \
+  -H "Content-Type: application/json" \
+  -d '{"decision":"rejected","actor":"local-user","reason":"Patch scope too broad"}'
+```
+
 ## Architecture
 
 ```text
-Dashboard
+Next.js Dashboard
   |
   | HTTP + SSE
   v
@@ -148,21 +333,16 @@ FastAPI API
   v
 LangGraph Orchestrator
   |
-  +-- Planner Agent
-  +-- Repo RAG Agent
-  +-- Coder Agent
+  +-- Planner
+  +-- Engineer
   +-- Approval Gate
-  +-- Testing Agent
-  +-- Vision Agent
-  +-- Security Agent
-  +-- Review Agent
-  +-- Documentation Agent
-  +-- Deployment Agent
-  +-- Memory Agent
+  +-- Reviewer
+  +-- Documenter
   |
-  +-- SQLite/Postgres: runs, events, approvals, artifacts, memory
-  +-- Qdrant/in-memory: repository vector search
-  +-- Redis: Celery broker/result backend in Docker mode
+  +-- SQLite default store
+  +-- Postgres optional store
+  +-- Qdrant optional vector store
+  +-- In-memory vector fallback
 ```
 
 Important files:
@@ -170,26 +350,33 @@ Important files:
 - `apps/api/forgeai/api.py`: FastAPI routes and request/response flow.
 - `apps/api/forgeai/core/graph.py`: LangGraph node ordering and halt/resume edges.
 - `apps/api/forgeai/agents/builtins.py`: built-in MVP agents.
+- `apps/api/forgeai/services/patches.py`: patch build, verification, stats, and apply helpers.
+- `apps/api/forgeai/services/indexer.py`: repository chunking, indexing, and retrieval.
+- `apps/api/forgeai/services/security.py`: approval policy, redaction, sensitive-path checks, and prompt-injection signals.
+- `apps/api/forgeai/services/replay.py`: deterministic LLM call record helper.
 - `apps/api/forgeai/plugins/base.py`: plugin contract.
-- `apps/api/forgeai/plugins/registry.py`: plugin registration.
-- `apps/api/forgeai/services/security.py`: approval policy and redaction helpers.
-- `apps/api/forgeai/services/indexer.py`: repository chunking and indexing.
-- `apps/api/forgeai/services/vector_store.py`: Qdrant and in-memory vector stores.
+- `apps/api/forgeai/db/tables.py`: persisted schema.
 - `apps/web/components/forge-dashboard.tsx`: dashboard UI and interactions.
+- `docs/LLM_AGENT_GUIDE.md`: future-agent operating guide.
+- `docs/SECURITY_AND_VULNERABILITIES.md`: threat model and known risks.
 
-## Agent Flow
+## Data Model
 
-1. `planner`: decomposes the task and creates the execution plan artifact.
-2. `repo-rag`: retrieves indexed chunks related to the task.
-3. `coder`: prepares a patch artifact and requests approval for `file_write`.
-4. `approval-gate`: halts when any approval is pending.
-5. `testing`: records safe test commands and creates a test report artifact.
-6. `vision`: creates an OpenCV before/after diff artifact.
-7. `security`: reviews tool calls and approval requirements.
-8. `review`: generates risk-focused review notes.
-9. `docs`: creates changelog and LinkedIn draft artifacts.
-10. `deployment`: skips cloud deploy unless explicitly enabled.
-11. `memory`: stores the run summary as long-term project memory.
+Core persisted types:
+
+- `TaskRun`: one requested engineering task.
+- `RunEvent`: sequenced timeline event streamed to the dashboard.
+- `AgentStep`: completed, paused, or failed agent work.
+- `ToolCall`: planned or executed tool operation.
+- `ApprovalRequest`: human approval gate for risky actions.
+- `Artifact`: generated plan, patch, review, or docs.
+- `VerifiedPatch`: evidence-backed patch with checks and apply status.
+- `LLMCall`: replay metadata for model calls or deterministic stand-ins.
+- `RepoChunk`: indexed source or document chunk.
+- `MemoryRecord`: long-term project or run memory.
+- `VisionFinding`: retained for future vision plugin work, not used by the default graph.
+
+SQLite is the default local store. Docker can use Postgres. Qdrant is optional; tests and offline demos use the in-memory vector fallback.
 
 ## Plugin Contract
 
@@ -206,23 +393,7 @@ ForgePlugin(
 )
 ```
 
-Add new capabilities through the registry in `apps/api/forgeai/plugins`, then wire nodes through the graph. Avoid hard-coding new external tools directly into route handlers.
-
-## Data Model
-
-Core persisted types:
-
-- `TaskRun`: one requested engineering task.
-- `RunEvent`: timeline event streamed to the dashboard.
-- `AgentStep`: completed or paused agent work.
-- `ToolCall`: planned or executed tool operation.
-- `ApprovalRequest`: human approval gate for risky actions.
-- `Artifact`: generated plan, patch, report, screenshot diff, review, or docs.
-- `RepoChunk`: indexed source/document chunk.
-- `MemoryRecord`: long-term project/user memory.
-- `VisionFinding`: image/layout review finding.
-
-The database tables live in `apps/api/forgeai/db/tables.py`. SQLite is the default local store; Docker uses Postgres.
+Add new capabilities through the registry and graph. Do not bolt external tools directly into route handlers.
 
 ## Configuration
 
@@ -238,7 +409,24 @@ Key environment variables:
 - `OPENAI_API_KEY`: optional future model provider key.
 - `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `GITHUB_TOKEN`: optional future deploy/plugin credentials.
 
-The app should run without cloud credentials. Do not make cloud services required for tests or the default local demo.
+Default local runs must work without cloud credentials.
+
+## Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- `api`: FastAPI service on port `8000`.
+- `worker`: Celery worker for Docker mode.
+- `web`: Next.js dashboard on port `3000`.
+- `postgres`: optional Postgres store.
+- `redis`: optional Celery broker/result backend.
+- `qdrant`: optional vector database.
+
+Docker mode sets `RUNNER_MODE=celery`.
 
 ## Testing
 
@@ -261,39 +449,40 @@ pnpm --filter @forgeai/web test:e2e
 
 Current automated coverage includes:
 
-- API run creation, approval pause, approval resume, and completion.
-- Repository indexing and semantic search.
+- API run creation, approval pause, approval resume, patch apply, and completion.
+- `VerifiedPatch` clean-apply evidence.
+- Repository indexing and search.
+- Symbol-aware chunk extraction.
+- Sensitive path exclusion.
+- Prompt-injection signal detection.
 - Approval policy rules.
 - Secret redaction helper.
-- Vision diff artifact creation.
 - Dashboard render and mocked API submission.
 
 ## Security Model
 
-ForgeAI is intentionally approval-gated, but it is not a sandbox yet.
-
 Safe by default:
 
-- Cloud deploy plugins are disabled unless `ENABLE_CLOUD_PLUGINS=true`.
-- Mutating tool categories are modeled as approval-required.
-- The Coder Agent currently prepares patch artifacts instead of applying them.
-- Tests use deterministic local providers and do not need external credentials.
+- The app runs without secrets.
+- Cloud plugins are disabled unless explicitly enabled.
+- Mutating tool categories are approval-required.
+- Patch application pauses for approval.
+- Rejections require a reason.
 - Generated runtime artifacts are ignored under `.forgeai/`.
+- Tests use deterministic local providers.
 
-Known vulnerabilities and hardening priorities:
+Known risks:
 
-- No authentication or authorization on the API.
-- Local path indexing can read any path reachable by the process.
+- No API authentication or authorization.
+- Local path indexing can read broad local paths.
 - Approval gates are application-level checks, not OS-level isolation.
-- CORS is configured for local development origins.
-- Artifact content and file paths are visible through the API to any caller with network access.
-- Secret redaction is regex-based and can miss unusual credential formats.
-- Docker Compose uses development credentials.
-- No rate limiting, request size limits, or tenant isolation.
-- Qdrant fallback is in-memory and process-local.
-- Deployment/GitHub/browser automation plugins are contracts, not hardened implementations.
+- Patch application currently runs in the API/worker process, not a locked-down container.
+- Secret redaction is regex-based and best-effort.
+- Artifact content and local paths are visible through the API.
+- Docker Compose credentials are development-only.
+- No rate limits, request size limits, task quotas, or tenant isolation.
 
-Read the dedicated security notes before adding real code execution or cloud deployment:
+Read:
 
 - `SECURITY.md`
 - `docs/SECURITY_AND_VULNERABILITIES.md`
@@ -303,16 +492,16 @@ Read the dedicated security notes before adding real code execution or cloud dep
 
 Recommended next milestones:
 
-1. Add authentication for dashboard and API.
-2. Add a real patch-application worker that runs in a sandboxed checkout.
-3. Restrict repository indexing to configured workspace roots.
-4. Add OS/process sandboxing for shell and file tools.
-5. Add model provider abstraction for OpenAI/Anthropic/local models.
-6. Add GitHub PR creation behind approval gates.
-7. Add Railway/Vercel deployment plugins behind approval gates.
-8. Add Supabase-compatible migrations and optional cloud Postgres setup.
-9. Add richer visual inspection with real Playwright screenshots.
-10. Add task-quality telemetry and ML prediction features.
+1. Add API authentication and ownership.
+2. Add allowed workspace roots for indexing and patch application.
+3. Move file and shell actions into a locked-down container sandbox.
+4. Add real model provider interface with replay mode.
+5. Replace deterministic hash embeddings with ONNX or transformer embeddings.
+6. Add tree-sitter symbol extraction.
+7. Add Playwright screenshot capture and visual review plugin.
+8. Add GitHub PR plugin behind approval gates.
+9. Add Railway and Vercel deploy plugins behind approval gates.
+10. Add evaluation suite with seeded bugs and benchmark tasks.
 
 ## For Future LLM Agents
 
@@ -325,4 +514,4 @@ Start here:
 5. Inspect `apps/api/forgeai/core/graph.py` and `apps/api/forgeai/agents/builtins.py`.
 6. Run `pytest apps/api/tests` and `pnpm --filter @forgeai/web build` before changing behavior.
 
-Preserve the project principle: ForgeAI should remain local-first and approval-gated unless the user explicitly chooses otherwise.
+Preserve the project principle: ForgeAI stays local-first, evidence-first, and approval-gated unless the user explicitly chooses otherwise.

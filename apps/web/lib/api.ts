@@ -46,6 +46,37 @@ export interface Artifact {
   payload: Record<string, unknown>;
 }
 
+export interface VerifiedPatch {
+  id: string;
+  base_sha: string | null;
+  diff: string;
+  files_changed: string[];
+  lines_added: number;
+  lines_removed: number;
+  applies_cleanly: boolean;
+  applied_at: string | null;
+  apply_output: string | null;
+  checks: Array<Record<string, unknown>>;
+  attempts: number;
+  context_files_read: Array<Record<string, unknown>>;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  sandbox_image: string;
+  provenance: Record<string, unknown>;
+}
+
+export interface LLMCall {
+  id: string;
+  model: string;
+  messages_hash: string;
+  tokens_in: number;
+  tokens_out: number;
+  latency_ms: number;
+  cost_usd: number;
+  created_at: string;
+}
+
 export interface TaskRun {
   id: string;
   task: string;
@@ -60,6 +91,8 @@ export interface TaskRun {
   steps: AgentStep[];
   approvals: ApprovalRequest[];
   artifacts: Artifact[];
+  verified_patches: VerifiedPatch[];
+  llm_calls: LLMCall[];
 }
 
 export interface SearchItem {
@@ -99,10 +132,15 @@ export function getRun(runId: string) {
   return request<TaskRun>(`/api/runs/${runId}`);
 }
 
-export function approveRun(runId: string, approvalId: string, decision: "approved" | "rejected") {
+export function approveRun(
+  runId: string,
+  approvalId: string,
+  decision: "approved" | "rejected",
+  reason?: string
+) {
   return request<TaskRun>(`/api/runs/${runId}/approvals/${approvalId}`, {
     method: "POST",
-    body: JSON.stringify({ decision, actor: "dashboard" })
+    body: JSON.stringify({ decision, actor: "dashboard", reason })
   });
 }
 
@@ -116,4 +154,3 @@ export function indexRepo(path: string) {
 export function searchRepo(query: string) {
   return request<SearchItem[]>(`/api/search?q=${encodeURIComponent(query)}&limit=6`);
 }
-

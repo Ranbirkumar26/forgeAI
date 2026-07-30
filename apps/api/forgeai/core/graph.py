@@ -17,16 +17,10 @@ def build_forge_graph():
     graph = StateGraph(ForgeState)
     for plugin_name in [
         "planner",
-        "repo-rag",
-        "coder",
+        "engineer",
         "approval-gate",
-        "testing",
-        "vision",
-        "security",
-        "review",
-        "docs",
-        "deployment",
-        "memory",
+        "reviewer",
+        "documenter",
     ]:
         if plugin_name == "approval-gate":
             from forgeai.agents.builtins import approval_gate_node
@@ -39,23 +33,13 @@ def build_forge_graph():
         graph.add_node(plugin_name, plugin.node_builder())
 
     graph.add_edge(START, "planner")
-    graph.add_edge("planner", "repo-rag")
-    graph.add_edge("repo-rag", "coder")
-    graph.add_edge("coder", "approval-gate")
+    graph.add_edge("planner", "engineer")
+    graph.add_edge("engineer", "approval-gate")
     graph.add_conditional_edges(
         "approval-gate",
         should_continue,
-        {"halt": END, "continue": "testing"},
+        {"halt": END, "continue": "reviewer"},
     )
-    graph.add_edge("testing", "vision")
-    graph.add_edge("vision", "security")
-    graph.add_edge("security", "review")
-    graph.add_edge("review", "docs")
-    graph.add_edge("docs", "deployment")
-    graph.add_conditional_edges(
-        "deployment",
-        should_continue,
-        {"halt": END, "continue": "memory"},
-    )
-    graph.add_edge("memory", END)
+    graph.add_edge("reviewer", "documenter")
+    graph.add_edge("documenter", END)
     return graph.compile()

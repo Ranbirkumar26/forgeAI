@@ -12,6 +12,7 @@ class VectorHit:
     content: str
     score: float
     language: str = "text"
+    repo_path: str | None = None
 
 
 class InMemoryVectorStore:
@@ -22,16 +23,29 @@ class InMemoryVectorStore:
         self.points = [point for point in self.points if point[0] != point_id]
         self.points.append((point_id, vector, payload))
 
-    def search(self, vector: list[float], limit: int = 8) -> list[VectorHit]:
+    def delete_by_repo(self, repo_path: str) -> None:
+        self.points = [
+            point for point in self.points if point[2].get("repo_path") != repo_path
+        ]
+
+    def search(
+        self, vector: list[float], limit: int = 8, repo_path: str | None = None
+    ) -> list[VectorHit]:
         def dot(point: tuple[str, list[float], dict]) -> float:
             return sum(a * b for a, b in zip(vector, point[1], strict=False))
 
-        ranked = sorted(self.points, key=dot, reverse=True)[:limit]
+        points = [
+            point
+            for point in self.points
+            if repo_path is None or point[2].get("repo_path") == repo_path
+        ]
+        ranked = sorted(points, key=dot, reverse=True)[:limit]
         return [
             VectorHit(
                 file_path=payload["file_path"],
                 content=payload["content"],
                 language=payload.get("language", "text"),
+                repo_path=payload.get("repo_path"),
                 score=float(dot(point)),
             )
             for point_id, point_vector, payload in ranked
@@ -70,17 +84,46 @@ class QdrantVectorStore:
             ],
         )
 
-    def search(self, vector: list[float], limit: int = 8) -> list[VectorHit]:
+    def delete_by_repo(self, repo_path: str) -> None:
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="repo_path",
+                            match=qmodels.MatchValue(value=repo_path),
+                        )
+                    ]
+                )
+            ),
+        )
+
+    def search(
+        self, vector: list[float], limit: int = 8, repo_path: str | None = None
+    ) -> list[VectorHit]:
+        query_filter = None
+        if repo_path is not None:
+            query_filter = qmodels.Filter(
+                must=[
+                    qmodels.FieldCondition(
+                        key="repo_path",
+                        match=qmodels.MatchValue(value=repo_path),
+                    )
+                ]
+            )
         hits = self.client.search(
             collection_name=self.collection,
             query_vector=vector,
             limit=limit,
+            query_filter=query_filter,
         )
         return [
             VectorHit(
                 file_path=str(hit.payload.get("file_path", "")),
                 content=str(hit.payload.get("content", "")),
                 language=str(hit.payload.get("language", "text")),
+                repo_path=str(hit.payload.get("repo_path", "")),
                 score=float(hit.score),
             )
             for hit in hits

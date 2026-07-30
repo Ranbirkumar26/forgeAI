@@ -3,11 +3,13 @@ from forgeai.models.schemas import (
     ApprovalDecision,
     ApprovalRequestRead,
     ArtifactRead,
+    LLMCallRead,
     RepoIndexRequest,
     RunCreate,
     RunEventRead,
     SearchResponseItem,
     TaskRunRead,
+    VerifiedPatchRead,
 )
 
 __all__ = [
@@ -15,9 +17,11 @@ __all__ = [
     "ApprovalDecision",
     "ApprovalRequestRead",
     "ArtifactRead",
+    "LLMCallRead",
     "RepoIndexRequest",
     "RunCreate",
     "RunEventRead",
     "SearchResponseItem",
     "TaskRunRead",
+    "VerifiedPatchRead",
 ]

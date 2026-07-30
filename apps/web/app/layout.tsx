@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ForgeAI",
-  description: "Autonomous AI software engineering control plane"
+  description: "Verified patch software engineering control plane"
 };
 
 export default function RootLayout({

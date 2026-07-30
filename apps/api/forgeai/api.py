@@ -36,7 +36,7 @@ app = FastAPI(
     title="ForgeAI API",
     version="0.1.0",
     description=(
-        "Autonomous software engineering control plane with approvals, memory, RAG, and vision."
+        "Local-first software engineering control plane for approval-gated verified patches."
     ),
 )
 
@@ -65,6 +65,8 @@ def _load_run(db: Session, run_id: str) -> TaskRun:
             selectinload(TaskRun.steps),
             selectinload(TaskRun.approvals),
             selectinload(TaskRun.artifacts),
+            selectinload(TaskRun.verified_patches),
+            selectinload(TaskRun.llm_calls),
         )
         .where(TaskRun.id == run_id)
     ).scalar_one_or_none()

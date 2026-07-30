@@ -1,4 +1,5 @@
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -29,16 +30,44 @@ def wait_for_status(test_client: TestClient, run_id: str, status: str) -> dict:
     raise AssertionError(f"Expected status {status}, got {latest['status']}")
 
 
-def test_run_pauses_for_approval_then_completes() -> None:
+def create_temp_repo(path: Path) -> Path:
+    path.mkdir()
+    (path / "README.md").write_text("# Demo Repo\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial"],
+        cwd=path,
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "pytest",
+            "GIT_AUTHOR_EMAIL": "pytest@example.com",
+            "GIT_COMMITTER_NAME": "pytest",
+            "GIT_COMMITTER_EMAIL": "pytest@example.com",
+        },
+    )
+    return path
+
+
+def test_run_pauses_for_approval_then_applies_verified_patch(tmp_path: Path) -> None:
     test_client = client()
+    repo_path = create_temp_repo(tmp_path / "repo")
     response = test_client.post(
         "/api/runs",
-        json={"task": "Prepare a safe README improvement", "model_profile": "balanced"},
+        json={
+            "task": "Prepare a safe README improvement",
+            "model_profile": "balanced",
+            "repo_path": str(repo_path),
+        },
     )
     assert response.status_code == 200
     created = response.json()
     run = wait_for_status(test_client, created["id"], "awaiting_approval")
     assert run["approvals"][0]["status"] == "pending"
+    assert run["verified_patches"]
+    assert run["verified_patches"][0]["applies_cleanly"] is True
 
     approval_id = run["approvals"][0]["id"]
     response = test_client.post(
@@ -47,8 +76,10 @@ def test_run_pauses_for_approval_then_completes() -> None:
     )
     assert response.status_code == 200
     completed = wait_for_status(test_client, run["id"], "completed")
-    assert any(artifact["kind"] == "vision" for artifact in completed["artifacts"])
-    assert any(step["agent"] == "memory" for step in completed["steps"])
+    assert completed["verified_patches"][0]["applied_at"] is not None
+    assert any(artifact["kind"] == "review" for artifact in completed["artifacts"])
+    assert any(step["agent"] == "documenter" for step in completed["steps"])
+    assert "ForgeAI Verified Run" in (repo_path / "README.md").read_text(encoding="utf-8")
 
 
 def test_repository_index_and_search() -> None:

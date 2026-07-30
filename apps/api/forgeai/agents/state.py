@@ -8,5 +8,6 @@ class ForgeState(TypedDict, total=False):
     model_profile: str
     plan: list[str]
     retrieved_chunks: list[dict[str, Any]]
+    verified_patch_id: str
     halted: bool
     summary: str

@@ -1,29 +1,34 @@
 # Security and Vulnerability Notes
 
-This document is intentionally direct. It helps humans and LLM agents understand where ForgeAI is safe, where it is only simulated, and where it is vulnerable.
+This document exists so humans and future LLM agents understand exactly where ForgeAI is safe, where it is only partially hardened, and where it is vulnerable.
 
 ## Trust Boundaries
 
-ForgeAI has these trust boundaries:
-
-- Browser/dashboard to FastAPI API.
+- Browser dashboard to FastAPI API.
 - API to database and artifact store.
-- API/worker to local filesystem.
-- API/worker to Qdrant or in-memory vector store.
-- API to Redis/Celery in Docker mode.
+- API or worker to local filesystem.
+- API or worker to local git repository.
+- API to Qdrant or in-memory vector store.
+- API to Redis and Celery in Docker mode.
 - Future plugins to GitHub, Railway, Vercel, Supabase, browsers, and model providers.
 
-The most sensitive boundary is API/worker to local filesystem. Any future feature that reads, writes, executes, deploys, opens browsers, or pushes git state must be treated as high risk.
+Highest-risk boundary: API or worker to local filesystem and git repository.
+
+Any feature that reads files, writes files, runs commands, deploys, opens browsers, pushes git state, or touches credentials is high risk.
 
 ## Current Safety Controls
 
 - `ApprovalPolicy` marks mutating tool categories as approval-required.
-- `coder` prepares a patch artifact and requests approval for `file_write`.
-- `approval-gate` halts the LangGraph run when an approval is pending.
-- `deployment` skips cloud deploys unless `ENABLE_CLOUD_PLUGINS=true`.
-- `redact_secrets` removes common token/password patterns from events and artifacts.
-- `.gitignore` excludes `.env`, `.venv`, `.forgeai`, `node_modules`, `.next`, and test/build output.
-- Tests use deterministic hash embeddings and in-memory vector fallback when Qdrant is unavailable.
+- `engineer` creates `VerifiedPatch` and requests approval before `git apply`.
+- `approval-gate` halts the graph when approvals are pending.
+- Rejected approvals require a reason.
+- `VerifiedPatch` records diff, base SHA, files changed, line counts, clean-apply check, secret-scan check, provenance, and apply status.
+- Repository indexing skips sensitive paths, large files, ignored folders, `.forgeignore` matches, and files with likely secrets.
+- Retrieved context is scanned for prompt-injection signals.
+- `redact_secrets` removes common token/password patterns from persisted messages and artifacts.
+- Cloud deploy plugins remain disabled unless credentials and settings are explicitly configured.
+- Tests use deterministic local providers and do not require external credentials.
+- Runtime artifacts are ignored by git under `.forgeai/`.
 
 ## Known Vulnerabilities
 
@@ -31,88 +36,147 @@ The most sensitive boundary is API/worker to local filesystem. Any future featur
 
 Risk:
 
-- Anyone with network access to the API can create runs, read run data, approve actions, index paths, and search indexed chunks.
+- Anyone with network access to the API can create runs, read run data, approve actions, index paths, search chunks, and apply approved patches.
 
 Impact:
 
-- Sensitive source code or generated artifacts could be exposed.
-- A malicious caller could approve actions once real mutating tools are implemented.
+- Sensitive code or artifacts could be exposed.
+- A malicious caller could approve local file mutations.
 
 Fix:
 
 - Add authentication middleware.
-- Add user/project ownership to `TaskRun`, `ApprovalRequest`, `Artifact`, `RepoChunk`, and `MemoryRecord`.
-- Require authorization checks on every API endpoint.
+- Add user and project ownership columns.
+- Require authorization checks on every endpoint.
+- Separate local demo auth from production auth.
 
 ### 2. Repository Indexing Can Read Broad Local Paths
 
 Risk:
 
-- `/api/repos/index` accepts a caller-provided path and walks it with `Path.rglob`.
+- `/api/repos/index` accepts caller-provided paths and walks them.
 
 Impact:
 
-- If the API is exposed, a caller could request indexing of sensitive readable directories.
+- If exposed, caller could index sensitive readable directories.
 
-Fix:
+Current mitigation:
+
+- Sensitive names and large files are skipped.
+- Files with likely secrets are skipped.
+- `.forgeignore` is supported.
+
+Remaining fix:
 
 - Add `ALLOWED_WORKSPACE_ROOTS`.
 - Resolve paths and reject anything outside allowed roots.
-- Reject or carefully resolve symlinks.
-- Add max file count, max bytes, and timeout limits.
+- Reject symlinks or resolve them safely.
+- Add max file count, max total bytes, and timeout limits.
 
-### 3. Approval Gates Are Not a Sandbox
+### 3. Patch Application Is Not Sandboxed
 
 Risk:
 
-- Approval state is enforced in application logic, not by a kernel/container sandbox.
+- Approved patch application runs `git apply` from the API or worker process.
 
 Impact:
 
-- A bug in graph routing or future tool code could bypass approval.
+- A bug in patch generation, approval routing, or path handling could mutate files outside intended scope.
 
-Fix:
+Current mitigation:
 
-- Execute mutating tools in a separate constrained worker.
-- Enforce allowlists at the tool-runner layer.
-- Require approval IDs/tokens to execute mutating calls.
+- Patch application requires approval.
+- `git apply --check` runs before approval.
+- Diff secret scan must pass.
+- Patch evidence is stored in `VerifiedPatch`.
+
+Remaining fix:
+
+- Apply patches inside ephemeral git worktrees.
+- Run tool execution in a locked-down container.
+- Disable network by default.
+- Add egress allowlists for dependency install only.
+- Require approval token to execute every mutating tool call.
 - Add tests proving unapproved tools cannot execute.
 
-### 4. Secret Redaction Is Best-Effort
+### 4. Approval Gates Are Application Logic
 
 Risk:
 
-- Regex redaction can miss unusual secret formats or secrets split across strings.
+- Approval state is enforced in Python graph and service code, not by OS policy.
 
 Impact:
 
-- Secrets could be persisted into events or artifacts.
+- Future tool code could bypass approvals accidentally.
 
 Fix:
+
+- Centralize mutating tool execution behind one tool runner.
+- Make tool runner require approval ID and approved status.
+- Deny direct subprocess or file write calls in agent nodes.
+- Add static checks for forbidden direct tool use.
+
+### 5. Secret Redaction Is Best-Effort
+
+Risk:
+
+- Regex redaction can miss uncommon secret formats, multiline secrets, or split secrets.
+
+Impact:
+
+- Secrets could be stored in events, artifacts, logs, patches, or frontend state.
+
+Current mitigation:
+
+- Common API key, token, password, GitHub token, OpenAI-style key, and private-key patterns are redacted.
+- Indexer skips likely secret files and likely secret content.
+
+Remaining fix:
 
 - Add structured secret scanners.
 - Redact before persistence and before API response.
-- Avoid storing raw command output by default.
-- Add tests for provider-specific token formats.
+- Store command output tails only.
+- Add provider-specific token tests.
 
-### 5. Artifact API Exposes Paths and Contents
+### 6. Artifact API Exposes Paths and Contents
 
 Risk:
 
-- Artifact records include content and local paths.
+- Artifact records include content and local artifact paths.
 
 Impact:
 
-- Callers can learn local filesystem structure and see generated sensitive content.
+- Caller can learn local filesystem structure and generated content.
 
 Fix:
 
-- Add auth.
+- Add auth and authorization.
 - Store relative artifact paths.
 - Add artifact retention and deletion.
-- Add content classification before persistence.
+- Classify artifacts before persistence.
 
-### 6. Development CORS Defaults
+### 7. Prompt Injection In Retrieved Files
+
+Risk:
+
+- Indexed repository files can contain instructions aimed at the agent.
+
+Impact:
+
+- Future real LLM calls could follow malicious repo content.
+
+Current mitigation:
+
+- Retrieved context is scanned for known prompt-injection signals.
+- Findings are surfaced to reviewer events.
+
+Remaining fix:
+
+- Wrap retrieved context as untrusted data in model prompts.
+- Add policy tests for prompt injection fixtures.
+- Make model providers enforce system/developer instruction hierarchy.
+
+### 8. Development CORS Defaults
 
 Risk:
 
@@ -120,18 +184,18 @@ Risk:
 
 Impact:
 
-- Fine for local demo; risky if reused in production.
+- Safe for local demo, unsafe if reused in production.
 
 Fix:
 
-- Make production CORS explicit and narrow.
-- Fail startup in production if permissive dev origins are configured.
+- Make production CORS explicit.
+- Fail startup in production when dev origins are configured.
 
-### 7. Docker Compose Credentials Are Development-Only
+### 9. Docker Compose Credentials Are Development-Only
 
 Risk:
 
-- Postgres credentials are hard-coded as `forgeai/forgeai`.
+- Compose uses simple local credentials.
 
 Impact:
 
@@ -139,57 +203,64 @@ Impact:
 
 Fix:
 
-- Use secret management and environment-specific credentials.
-- Never expose Postgres, Redis, or Qdrant publicly without auth/network controls.
+- Use environment-specific credentials and platform secrets.
+- Do not expose Postgres, Redis, or Qdrant publicly without auth and network controls.
 
-### 8. No Rate Limits or Quotas
+### 10. No Rate Limits or Quotas
 
 Risk:
 
-- Callers can create many runs, index large repos, and stream events.
+- Callers can create many runs, index large repos, stream events, and generate artifacts.
 
 Impact:
 
-- CPU, memory, disk, DB, and queue exhaustion.
+- CPU, memory, disk, database, and queue exhaustion.
 
 Fix:
 
-- Add request body limits, file limits, task quotas, rate limiting, and queue backpressure.
+- Add request body limits.
+- Add task quotas.
+- Add rate limiting.
+- Add queue backpressure.
+- Add artifact retention.
 
-### 9. Cloud Plugins Are Not Hardened Yet
+### 11. Cloud Plugins Are Not Hardened
 
 Risk:
 
-- Deployment/GitHub/browser integrations are represented as plugin contracts and graph nodes, not finished secure integrations.
+- GitHub, deploy, browser, and cloud-provider integrations are only plugin contracts or deferred work.
 
 Impact:
 
-- A future naive implementation could push code, deploy, or fill browser forms without adequate checks.
+- Future naive implementation could push code, deploy, or fill browser forms without adequate controls.
 
 Fix:
 
 - Implement dry-run previews.
 - Require approval per provider action.
-- Record exact target repo/project/environment.
+- Record exact target repo, project, branch, environment, URL, and account.
 - Verify post-action state.
-- Add provider-specific least-privilege token guidance.
+- Document least-privilege token scopes.
 
-## Security Invariants to Preserve
+## Security Invariants
 
-- The default demo must work without secrets.
+- Default demo must work without secrets.
 - Any mutating action must create a visible approval request first.
-- Tests must not need real cloud/model credentials.
-- Cloud deploy plugins must remain disabled by default.
+- Rejected approvals must include a reason.
+- Tests must not need real cloud, browser, deploy, or model credentials.
+- Cloud deploy plugins remain disabled by default.
 - Frontend code must never receive server-only tokens.
-- Runtime artifacts must stay ignored by git.
+- Runtime artifacts stay ignored by git.
+- Vulnerability notes must be updated when adding file, shell, browser, git, deploy, auth, or cloud behavior.
 
-## Recommended Hardening Order
+## Hardening Order
 
 1. API authentication and ownership model.
-2. Allowed workspace roots for indexing.
-3. Sandboxed tool runner for file/shell/browser/git/deploy actions.
+2. Allowed workspace roots for indexing and patch application.
+3. Sandboxed tool runner for file, shell, browser, git, and deploy actions.
 4. Stronger secret scanning and output minimization.
-5. Production CORS/env validation.
-6. Rate limits and task quotas.
-7. Provider-specific GitHub/Railway/Vercel approval flows.
-8. Audit log export and tamper-resistant run history.
+5. Prompt-injection policy tests.
+6. Production CORS and environment validation.
+7. Rate limits and task quotas.
+8. Provider-specific GitHub, Railway, Vercel, and Supabase approval flows.
+9. Audit log export and tamper-resistant run history.

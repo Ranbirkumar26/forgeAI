@@ -1,26 +1,6 @@
 "use client";
 
-import {
-  Activity,
-  Boxes,
-  Check,
-  Clock3,
-  Code2,
-  Database,
-  Eye,
-  FileText,
-  GitPullRequest,
-  Lock,
-  Play,
-  Radar,
-  RefreshCw,
-  Rocket,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  TerminalSquare,
-  X
-} from "lucide-react";
+import { Check, Copy, Database, Play, RefreshCw, Search, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   API_BASE,
@@ -29,6 +9,7 @@ import {
   RunEvent,
   SearchItem,
   TaskRun,
+  VerifiedPatch,
   approveRun,
   createRun,
   getRun,
@@ -36,38 +17,35 @@ import {
   searchRepo
 } from "@/lib/api";
 
-const agents = [
-  { id: "planner", label: "Planner", icon: Radar },
-  { id: "repo-rag", label: "Repo RAG", icon: Database },
-  { id: "coder", label: "Coder", icon: Code2 },
-  { id: "testing", label: "Testing", icon: TerminalSquare },
-  { id: "vision", label: "Vision", icon: Eye },
-  { id: "security", label: "Security", icon: ShieldCheck },
-  { id: "review", label: "Review", icon: GitPullRequest },
-  { id: "docs", label: "Docs", icon: FileText },
-  { id: "deployment", label: "Deploy", icon: Rocket },
-  { id: "memory", label: "Memory", icon: Boxes }
-];
+const pipeline = ["planner", "engineer", "reviewer", "documenter"];
 
-const demoTask =
-  "Inspect this repository, prepare a small product-quality improvement, test it, visually review it, and generate release notes.";
+const demoTask = "Prepare a safe README improvement with verified patch evidence.";
 
 export function ForgeDashboard() {
   const [task, setTask] = useState(demoTask);
   const [repoPath, setRepoPath] = useState(process.env.NEXT_PUBLIC_DEMO_REPO_PATH ?? "");
   const [run, setRun] = useState<TaskRun | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
-  const [query, setQuery] = useState("approval gated coder agent");
+  const [query, setQuery] = useState("approval verified patch");
   const [searchResults, setSearchResults] = useState<SearchItem[]>([]);
   const [isBusy, setIsBusy] = useState(false);
-  const [notice, setNotice] = useState("Ready for a local autonomous engineering run.");
+  const [notice, setNotice] = useState("Idle");
 
   const pendingApproval = run?.approvals.find((approval) => approval.status === "pending") ?? null;
+  const latestPatch = run?.verified_patches.at(-1) ?? null;
   const completedAgents = new Set(run?.steps.map((step) => step.agent) ?? []);
   const latestEvent = events.at(-1)?.message ?? notice;
 
   const tokenTotal = useMemo(() => {
-    return (run?.steps ?? []).reduce((total, step) => total + step.token_input + step.token_output, 0);
+    const stepTokens = (run?.steps ?? []).reduce(
+      (total, step) => total + step.token_input + step.token_output,
+      0
+    );
+    const callTokens = (run?.llm_calls ?? []).reduce(
+      (total, call) => total + call.tokens_in + call.tokens_out,
+      0
+    );
+    return Math.max(stepTokens, callTokens);
   }, [run]);
 
   useEffect(() => {
@@ -78,7 +56,7 @@ export function ForgeDashboard() {
         setRun(fresh);
         setEvents(fresh.events);
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Unable to refresh run.");
+        setNotice(error instanceof Error ? error.message : "Refresh failed");
       }
     }, 1800);
     const source = new EventSource(`${API_BASE}/api/runs/${run.id}/events`);
@@ -104,9 +82,9 @@ export function ForgeDashboard() {
       const created = await createRun(task, repoPath);
       setRun(created);
       setEvents(created.events);
-      setNotice("Run submitted. Agents are waking up.");
+      setNotice("Run queued");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Run failed to start.");
+      setNotice(error instanceof Error ? error.message : "Run failed");
     } finally {
       setIsBusy(false);
     }
@@ -114,15 +92,15 @@ export function ForgeDashboard() {
 
   async function onIndexRepo() {
     if (!repoPath.trim()) {
-      setNotice("Add a local repository path before indexing.");
+      setNotice("Repository path required");
       return;
     }
     setIsBusy(true);
     try {
       const result = await indexRepo(repoPath);
-      setNotice(`Indexed ${result.indexed_chunks} chunks from ${result.path}.`);
+      setNotice(`Indexed ${result.indexed_chunks} chunks`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Repository indexing failed.");
+      setNotice(error instanceof Error ? error.message : "Index failed");
     } finally {
       setIsBusy(false);
     }
@@ -134,81 +112,85 @@ export function ForgeDashboard() {
     try {
       const results = await searchRepo(query);
       setSearchResults(results);
-      setNotice(`Found ${results.length} semantic matches.`);
+      setNotice(`Search returned ${results.length} matches`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Search failed.");
+      setNotice(error instanceof Error ? error.message : "Search failed");
     } finally {
       setIsBusy(false);
     }
   }
 
-  async function resolveApproval(approval: ApprovalRequest, decision: "approved" | "rejected") {
+  async function resolveApproval(
+    approval: ApprovalRequest,
+    decision: "approved" | "rejected",
+    reason?: string
+  ) {
     if (!run) return;
     setIsBusy(true);
     try {
-      const updated = await approveRun(run.id, approval.id, decision);
+      const updated = await approveRun(run.id, approval.id, decision, reason);
       setRun(updated);
       setEvents(updated.events);
-      setNotice(`Approval ${decision}.`);
+      setNotice(`Approval ${decision}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Approval failed.");
+      setNotice(error instanceof Error ? error.message : "Approval failed");
     } finally {
       setIsBusy(false);
     }
+  }
+
+  async function copyText(value: string) {
+    await navigator.clipboard?.writeText(value);
+    setNotice("Copied");
   }
 
   return (
     <main className="shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">ForgeAI Control Plane</p>
-          <h1>Autonomous software engineering, with a human hand on the launch key.</h1>
+          <p className="eyebrow">ForgeAI</p>
+          <h1>Verified patch control plane</h1>
         </div>
-        <div className="status-pill" data-status={run?.status ?? "idle"}>
-          <Activity size={16} />
-          <span>{run?.status?.replace("_", " ") ?? "idle"}</span>
-        </div>
+        <StatusBadge status={run?.status ?? "idle"} />
       </header>
 
-      <section className="metrics-band">
-        <Metric label="Agents" value={`${completedAgents.size}/${agents.length}`} detail="completed" />
-        <Metric label="Approvals" value={String(run?.approvals.length ?? 0)} detail="requested" />
-        <Metric label="Artifacts" value={String(run?.artifacts.length ?? 0)} detail="generated" />
-        <Metric label="Tokens" value={String(tokenTotal)} detail="tracked" />
-      </section>
-
       <section className="workspace">
-        <div className="left-rail">
+        <aside className="left-rail">
           <form className="panel composer" onSubmit={onCreateRun}>
-            <div className="panel-title">
-              <Sparkles size={18} />
-              <span>New Task</span>
-            </div>
-            <textarea value={task} onChange={(event) => setTask(event.target.value)} />
-            <input
-              value={repoPath}
-              onChange={(event) => setRepoPath(event.target.value)}
-              placeholder="/absolute/path/to/repository"
-            />
+            <PanelTitle title="Run" />
+            <label>
+              <span>Task</span>
+              <textarea value={task} onChange={(event) => setTask(event.target.value)} />
+            </label>
+            <label>
+              <span>Repository path</span>
+              <input
+                value={repoPath}
+                onChange={(event) => setRepoPath(event.target.value)}
+                placeholder="/absolute/path/to/repository"
+              />
+            </label>
             <div className="button-row">
               <button type="submit" disabled={isBusy}>
                 <Play size={16} />
-                Start Run
+                Start
               </button>
-              <button type="button" className="secondary" onClick={onIndexRepo} disabled={isBusy}>
+              <button type="button" onClick={onIndexRepo} disabled={isBusy}>
                 <Database size={16} />
-                Index Repo
+                Index
               </button>
             </div>
           </form>
 
-          <ApprovalPanel approval={pendingApproval} busy={isBusy} onResolve={resolveApproval} />
+          <ApprovalPanel
+            approval={pendingApproval}
+            busy={isBusy}
+            patch={latestPatch}
+            onResolve={resolveApproval}
+          />
 
           <form className="panel search-panel" onSubmit={onSearch}>
-            <div className="panel-title">
-              <Search size={18} />
-              <span>Vector Search</span>
-            </div>
+            <PanelTitle title="Vector Search" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} />
             <button type="submit" disabled={isBusy}>
               <Search size={16} />
@@ -218,71 +200,93 @@ export function ForgeDashboard() {
               {searchResults.map((item) => (
                 <article key={`${item.file_path}-${item.score}`} className="result-item">
                   <strong>{item.file_path}</strong>
-                  <span>{item.language} · {item.score.toFixed(3)}</span>
+                  <span>
+                    {item.language} / {item.score.toFixed(3)}
+                  </span>
                   <p>{item.content.slice(0, 180)}</p>
                 </article>
               ))}
             </div>
           </form>
-        </div>
+        </aside>
 
-        <div className="main-grid">
-          <section className="panel graph-panel">
-            <div className="panel-title">
-              <Radar size={18} />
-              <span>Live Agent Graph</span>
-            </div>
-            <div className="agent-grid">
-              {agents.map((agent) => {
-                const Icon = agent.icon;
-                const isComplete = completedAgents.has(agent.id);
-                const isWaiting = pendingApproval && agent.id === "coder";
-                return (
-                  <div
-                    key={agent.id}
-                    className="agent-node"
-                    data-complete={isComplete}
-                    data-waiting={Boolean(isWaiting)}
-                  >
-                    <Icon size={19} />
-                    <span>{agent.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel timeline-panel">
-            <div className="panel-title">
-              <Clock3 size={18} />
-              <span>Timeline</span>
+        <section className="main-grid">
+          <section className="panel run-panel">
+            <PanelTitle title="Run Trace" />
+            <div className="run-summary">
+              <Copyable label="Run ID" value={run?.id ?? "none"} onCopy={copyText} />
+              <Copyable label="Base SHA" value={latestPatch?.base_sha ?? "none"} onCopy={copyText} />
+              <Metric label="Files" value={String(latestPatch?.files_changed.length ?? 0)} />
+              <Metric label="Tokens" value={String(tokenTotal)} />
+              <Metric label="Events" value={String(events.length)} />
+              <Metric label="Artifacts" value={String(run?.artifacts.length ?? 0)} />
             </div>
             <p className="latest">{latestEvent}</p>
-            <div className="timeline">
-              {events.length === 0 ? (
-                <p className="empty">Start a run to watch the agent trace stream in.</p>
-              ) : (
-                events
-                  .slice()
-                  .reverse()
-                  .map((event) => <TimelineItem key={event.id} event={event} />)
-              )}
+            <div className="agent-lane">
+              {pipeline.map((agent) => (
+                <div key={agent} className="agent-step" data-complete={completedAgents.has(agent)}>
+                  <StatusDot active={completedAgents.has(agent)} />
+                  <span>{agent}</span>
+                </div>
+              ))}
             </div>
           </section>
 
+          <PatchPanel patch={latestPatch} />
+          <TimelinePanel events={events} />
           <ArtifactsPanel artifacts={run?.artifacts ?? []} />
-        </div>
+        </section>
       </section>
     </main>
   );
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
+function PanelTitle({ title }: { title: string }) {
+  return (
+    <div className="panel-title">
+      <span>{title}</span>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <div className="status-badge" data-status={status}>
+      <StatusDot active={status === "running" || status === "completed"} />
+      <span>{status.replace("_", " ")}</span>
+    </div>
+  );
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return <span className="status-dot" data-active={active} />;
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
-      <small>{detail}</small>
+    </div>
+  );
+}
+
+function Copyable({
+  label,
+  value,
+  onCopy
+}: {
+  label: string;
+  value: string;
+  onCopy: (value: string) => void;
+}) {
+  return (
+    <div className="copyable">
+      <span>{label}</span>
+      <button type="button" onClick={() => onCopy(value)} aria-label={`Copy ${label}`}>
+        <Copy size={14} />
+      </button>
+      <code>{value}</code>
     </div>
   );
 }
@@ -290,46 +294,110 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 function ApprovalPanel({
   approval,
   busy,
+  patch,
   onResolve
 }: {
   approval: ApprovalRequest | null;
   busy: boolean;
-  onResolve: (approval: ApprovalRequest, decision: "approved" | "rejected") => void;
+  patch: VerifiedPatch | null;
+  onResolve: (approval: ApprovalRequest, decision: "approved" | "rejected", reason?: string) => void;
 }) {
+  const [reason, setReason] = useState("");
+
+  if (!approval) {
+    return (
+      <section className="panel approval-panel">
+        <PanelTitle title="Approval" />
+        <p className="empty">No pending approval</p>
+      </section>
+    );
+  }
+
   return (
-    <section className="panel approval-panel" data-active={Boolean(approval)}>
-      <div className="panel-title">
-        <Lock size={18} />
-        <span>Approval Gate</span>
+    <section className="panel approval-panel" data-active="true">
+      <PanelTitle title="Approval" />
+      <p>{approval.prompt}</p>
+      <div className="evidence-grid">
+        <Metric label="Risk" value={approval.risk_level} />
+        <Metric label="Action" value={approval.action_type} />
+        <Metric label="Added" value={String(patch?.lines_added ?? 0)} />
+        <Metric label="Removed" value={String(patch?.lines_removed ?? 0)} />
       </div>
-      {approval ? (
+      <CheckList checks={patch?.checks ?? []} />
+      <label>
+        <span>Rejection reason</span>
+        <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+      </label>
+      <div className="button-row split">
+        <button
+          type="button"
+          onClick={() => onResolve(approval, "rejected", reason)}
+          disabled={busy || !reason.trim()}
+        >
+          <X size={16} />
+          Reject
+        </button>
+        <button type="button" onClick={() => onResolve(approval, "approved")} disabled={busy}>
+          <Check size={16} />
+          Approve and apply
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function PatchPanel({ patch }: { patch: VerifiedPatch | null }) {
+  return (
+    <section className="panel patch-panel">
+      <PanelTitle title="VerifiedPatch" />
+      {patch ? (
         <>
-          <p>{approval.prompt}</p>
-          <div className="risk-line">
-            <span>Action</span>
-            <strong>{approval.action_type}</strong>
-            <span>Risk</span>
-            <strong>{approval.risk_level}</strong>
+          <div className="patch-stats">
+            <Metric label="Clean apply" value={patch.applies_cleanly ? "yes" : "no"} />
+            <Metric label="Applied" value={patch.applied_at ? "yes" : "no"} />
+            <Metric label="Attempts" value={String(patch.attempts)} />
+            <Metric label="Cost" value={`$${patch.cost_usd.toFixed(4)}`} />
           </div>
-          <div className="button-row">
-            <button type="button" onClick={() => onResolve(approval, "approved")} disabled={busy}>
-              <Check size={16} />
-              Approve
-            </button>
-            <button
-              type="button"
-              className="danger"
-              onClick={() => onResolve(approval, "rejected")}
-              disabled={busy}
-            >
-              <X size={16} />
-              Reject
-            </button>
-          </div>
+          <CheckList checks={patch.checks} />
+          <pre className="diff">{patch.diff}</pre>
         </>
       ) : (
-        <p className="empty">No pending approvals. Mutating actions will stop here before execution.</p>
+        <p className="empty">No patch yet</p>
       )}
+    </section>
+  );
+}
+
+function CheckList({ checks }: { checks: Array<Record<string, unknown>> }) {
+  if (!checks.length) return null;
+  return (
+    <div className="check-list">
+      {checks.map((check, index) => (
+        <article key={`${String(check.name)}-${index}`} className="check-row">
+          <StatusDot active={Number(check.exit_code) === 0} />
+          <strong>{String(check.name ?? "check")}</strong>
+          <code>{String(check.command ?? "")}</code>
+          <p>{String(check.output_tail ?? "")}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function TimelinePanel({ events }: { events: RunEvent[] }) {
+  return (
+    <section className="panel timeline-panel">
+      <PanelTitle title="Events" />
+      <div className="timeline">
+        {events.length === 0 ? (
+          <p className="empty">No events yet</p>
+        ) : (
+          events
+            .slice()
+            .reverse()
+            .map((event) => <TimelineItem key={event.id} event={event} />)
+        )}
+      </div>
     </section>
   );
 }
@@ -339,7 +407,9 @@ function TimelineItem({ event }: { event: RunEvent }) {
     <article className="timeline-item" data-level={event.level}>
       <div>
         <strong>{event.agent ?? "system"}</strong>
-        <span>{event.event_type}</span>
+        <span>
+          #{event.sequence} {event.event_type}
+        </span>
       </div>
       <p>{event.message}</p>
     </article>
@@ -349,13 +419,10 @@ function TimelineItem({ event }: { event: RunEvent }) {
 function ArtifactsPanel({ artifacts }: { artifacts: Artifact[] }) {
   return (
     <section className="panel artifacts-panel">
-      <div className="panel-title">
-        <FileText size={18} />
-        <span>Artifacts</span>
-      </div>
+      <PanelTitle title="Artifacts" />
       <div className="artifact-list">
         {artifacts.length === 0 ? (
-          <p className="empty">Plans, patches, visual diffs, reviews, and docs will appear here.</p>
+          <p className="empty">No artifacts yet</p>
         ) : (
           artifacts.map((artifact) => (
             <article key={artifact.id} className="artifact-item">
@@ -363,7 +430,7 @@ function ArtifactsPanel({ artifacts }: { artifacts: Artifact[] }) {
                 <strong>{artifact.title}</strong>
                 <span>{artifact.kind}</span>
               </div>
-              {artifact.content ? <pre>{artifact.content.slice(0, 520)}</pre> : null}
+              {artifact.content ? <pre>{artifact.content.slice(0, 720)}</pre> : null}
               {artifact.path ? <code>{artifact.path}</code> : null}
             </article>
           ))
@@ -372,4 +439,3 @@ function ArtifactsPanel({ artifacts }: { artifacts: Artifact[] }) {
     </section>
   );
 }
-
