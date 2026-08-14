@@ -3,6 +3,7 @@ services:
     name: forgeai
     runtime: docker
     plan: free
+    repo: https://github.com/Ranbirkumar26/forgeAI
     branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
