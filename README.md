@@ -447,6 +447,14 @@ Deploy from the repository root:
 railway up
 ```
 
+If Railway requires a paid plan, use Render's free web-service path with `render.yaml`:
+
+```bash
+render login
+```
+
+Then create a Blueprint from this GitHub repository in the Render dashboard, or deploy the `render.yaml` blueprint from the CLI once the account is authenticated.
+
 Production caveat:
 
 - Railway filesystem storage is ephemeral unless a volume or external database is configured.

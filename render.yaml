@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: forgeai
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////app/.forgeai/forgeai.db
+      - key: RUNNER_MODE
+        value: inline
+      - key: APPROVAL_MODE
+        value: required
+      - key: ENABLE_CLOUD_PLUGINS
+        value: "false"
+      - key: WEB_PROXY_URL
+        value: http://127.0.0.1:3000
