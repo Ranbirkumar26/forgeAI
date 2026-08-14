@@ -405,6 +405,8 @@ Key environment variables:
 - `RUNNER_MODE`: `inline` or `celery`.
 - `APPROVAL_MODE`: default `required`.
 - `ENABLE_CLOUD_PLUGINS`: default `false`.
+- `WEB_STATIC_DIR`: optional static dashboard directory served by FastAPI when present.
+- `WEB_PROXY_URL`: optional internal dashboard URL proxied by FastAPI in single-container deploys.
 - `NEXT_PUBLIC_API_URL`: dashboard API base URL.
 - `OPENAI_API_KEY`: optional future model provider key.
 - `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `GITHUB_TOKEN`: optional future deploy/plugin credentials.
@@ -427,6 +429,29 @@ Services:
 - `qdrant`: optional vector database.
 
 Docker mode sets `RUNNER_MODE=celery`.
+
+## Live Deploy
+
+ForgeAI includes a root `Dockerfile` and `railway.json` for a single-container Railway deploy:
+
+- FastAPI is the public process bound to `$PORT`.
+- Next.js standalone server runs inside the same container on `127.0.0.1:3000`.
+- FastAPI serves `/api`, `/healthz`, and `/metrics` directly, then proxies dashboard requests to internal Next.js.
+- SQLite remains the default database for the hosted demo.
+- `RUNNER_MODE=inline` keeps Redis optional.
+- Qdrant and Postgres remain optional services for later hardening.
+
+Deploy from the repository root:
+
+```bash
+railway up
+```
+
+Production caveat:
+
+- Railway filesystem storage is ephemeral unless a volume or external database is configured.
+- Hosted demo run history may reset on redeploy.
+- Do not expose this deployment to untrusted users until API auth and workspace-root restrictions are implemented.
 
 ## Testing
 

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     workspace_root: Path = Field(default_factory=lambda: Path.cwd())
     artifact_dir: Path = Field(default_factory=lambda: Path(".forgeai/artifacts"))
+    web_static_dir: Path = Field(default_factory=lambda: Path("apps/web/out"))
+    web_proxy_url: str | None = None
 
     database_url: str = "sqlite:///./.forgeai/forgeai.db"
     redis_url: str = "redis://localhost:6379/0"

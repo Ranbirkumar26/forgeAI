@@ -17,6 +17,7 @@
 - 2026-07-31: Added local `git apply --check` verification and approved `git apply` mutation. Reason: MVP now proves patch apply path, while security docs call out missing container sandbox.
 - 2026-07-31: Kept deterministic hash embeddings as default fallback. Reason: tests and demo must not require paid APIs or model downloads.
 - 2026-07-31: Updated dashboard to run trace, diff, approval, and checks view. Reason: v2 brief asked for CI-style evidence view instead of chatbot or dark operations UI.
+- 2026-08-15: Added single-container Railway deploy shape. Reason: live demo should run on one free-tier service with FastAPI serving exported dashboard and API from same origin.
 
 ## Deferred Features
 
@@ -30,3 +31,4 @@
 - "GitHub PR creation, git push, Railway deploy, Vercel deploy, Supabase cloud setup, and browser-form automation."
 - "API authentication, ownership, quotas, rate limits, request size limits, and production CORS controls."
 - "Budget manager and circuit breaker for model/tool calls."
+- "Railway volume or hosted Postgres for durable live demo state."

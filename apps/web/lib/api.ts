@@ -1,4 +1,10 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const explicitApiBase = process.env.NEXT_PUBLIC_API_URL;
+
+export const API_BASE =
+  explicitApiBase ??
+  (typeof window !== "undefined" && window.location.port === "3000"
+    ? "http://localhost:8000"
+    : "");
 
 export type RunStatus =
   | "queued"

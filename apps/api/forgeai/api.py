@@ -4,9 +4,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+import httpx
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -239,3 +241,38 @@ def search(q: str = Query(min_length=1), limit: int = Query(default=8, ge=1, le=
         )
         for hit in semantic_search(q, limit=limit)
     ]
+
+
+if settings.web_static_dir.exists():
+    app.mount("/", StaticFiles(directory=settings.web_static_dir, html=True), name="web")
+else:
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
+    async def proxy_dashboard(full_path: str, request: Request) -> Response:
+        if not settings.web_proxy_url:
+            raise HTTPException(status_code=404, detail="Dashboard is not mounted")
+
+        base_url = settings.web_proxy_url.rstrip("/")
+        target = f"{base_url}/{full_path}"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            upstream = await client.request(
+                request.method,
+                target,
+                headers={
+                    "accept": request.headers.get("accept", "*/*"),
+                    "user-agent": request.headers.get("user-agent", "forgeai-proxy"),
+                },
+            )
+        headers = {
+            key: value
+            for key, value in upstream.headers.items()
+            if key.lower() in {"content-type", "cache-control", "location"}
+        }
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            headers=headers,
+        )

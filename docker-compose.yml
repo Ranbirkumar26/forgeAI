@@ -80,4 +80,3 @@ volumes:
   forge_artifacts:
   postgres_data:
   qdrant_data:
-

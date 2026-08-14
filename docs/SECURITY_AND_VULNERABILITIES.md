@@ -224,7 +224,23 @@ Fix:
 - Add queue backpressure.
 - Add artifact retention.
 
-### 11. Cloud Plugins Are Not Hardened
+### 11. Hosted Demo Uses Ephemeral SQLite By Default
+
+Risk:
+
+- Single-container Railway deploy uses SQLite on local container filesystem unless a volume or external database is configured.
+
+Impact:
+
+- Run history, approvals, artifacts, and indexed chunks can reset on redeploy or platform restart.
+
+Fix:
+
+- Add Railway volume for demo persistence.
+- Use Postgres for durable hosted environments.
+- Keep SQLite for local and low-risk demos only.
+
+### 12. Cloud Plugins Are Not Hardened
 
 Risk:
 
